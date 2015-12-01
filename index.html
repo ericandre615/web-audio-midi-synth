@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Simple MIDI Demo</title>
+  <style>
+    body {
+      font-size:100%;
+      font-family: sans-serif;
+    }
+    button {
+      border: none;
+      background: none;
+      outline: none;
+      text-align: center;
+      border: 2px solid gray;
+      background-color: #eaeaea;
+      color: white;
+      padding: .25em;
+    }
+    .active {
+      background-color: green;
+    }
+    .deactive {
+      background-color: #eaeaea;
+    }
+    .error {
+      background-color: red;
+    }
+    #midi-messages {
+      height: 400px;
+      width: 600px;
+      overflow: auto;
+    }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <button id="btn-device" class="deactive">
+      Device <span class="device-status">On</span>
+    </button>
+    <select id="wave-type">
+      <option value="">Choose Wave Type</option>
+      <option value="square">Sqaure</option>
+      <option value="sawtooth">Sawtooth</option>
+      <option value="triangle">Triangle</option>
+    </select>
+    <select id="dual-type">
+      <option value="">Choose VCO 2 Wave Type</option>
+      <option value="square">Sqaure</option>
+      <option value="sawtooth">Sawtooth</option>
+      <option value="triangle">Triangle</option>
+    </select>
+    <select id="trip-type">
+      <option value="">Choose VCO 3 Wave Type</option>
+      <option value="square">Sqaure 1 Octave Low</option>
+      <option value="sawtooth">Sawtooth 1 Octave Low</option>
+      <option value="triangle">Triangle 1 Octave Low</option>
+    </select>
+    <button id="detuned">Detuned</button>
+    <p>LP filter</p>
+    <input type="range" name="lp_cutoff" min="0" max="20000" value="0">Cutoff
+    <input type="range" name="lp_res" min="0" max="100" value="0">Resonance
+    <p>Attack</p>
+    <input type="range" name="attack_time" min="1" max="100">
+    <ul id="midi-messages"></ul>
+  </div>
+
+  <script src="synth.js"></script>
+<script type="text/javascript">
+var midiDevice = {};
+var midiInputs;
+var deviceButton = document.getElementById('btn-device');
+var midiMessages = document.getElementById('midi-messages');
+var data, cmd, channel, type, note, velocity;
+var waveType = 'triangle';
+var selectWaveType = document.getElementById('wave-type');
+var selectDualType = document.getElementById('dual-type');
+var selectTripType = document.getElementById('trip-type');
+var selectCutoff = document.querySelector('input[name="lp_cutoff"]');
+var selectRes = document.querySelector('input[name="lp_res"]');
+var attackTime = "100";
+var dualType = "";
+var tripType = "";
+var lpFilter = {};
+var detuned = false;
+var selectDetune = document.getElementById('detuned');
+
+function onMIDISuccess(midiAccess) {
+  var midiSuccessMessage = document.createElement('li');
+  midiSuccessMessage.innerHTML = 'MIDI connected';
+
+  midiDevice = midiAccess;
+  deviceButton.classList.remove('deactive');
+  deviceButton.classList.add('active');
+  midiMessages.appendChild(midiSuccessMessage);
+  midiInputs = midiDevice.inputs.values();
+  registerInputMessages(midiInputs);
+}
+
+function registerInputMessages(midiInputs) {
+  for(var input = midiInputs.next(); input && !input.done; input = midiInputs.next()) {
+    input.value.onmidimessage = onMIDIMessage;
+  }
+}
+
+function frequencyFromNoteNumber(note) {
+  return 440 * Math.pow(2, (note - 69) / 12);
+}
+
+function noteOn(note, velocity) {
+  var frequency = frequencyFromNoteNumber(note);
+  console.log('NoteFrequnecy ', frequency);
+  console.log('NoteOn ', note, velocity);
+  createOscillator(frequency, velocity, note, waveType, dualType, detuned, tripType, lpFilter);
+}
+
+function noteOff(note, velocity) {
+  console.log('NoteOff ', note, ' ', velocity);
+  removeOscillator(note);
+}
+
+function onMIDIFailure(err) {
+  var midiFailureMessage = document.createElement('li');
+  midiFailureMessage.innerHTML = 'No MIDI Acccess: ' + err;
+
+  deviceButton.classList.remove('deactive');
+  deviceButton.classList.add('error');
+  midiMessages.appendChild(midiFailureMessage);
+  throw new Error('No MIDI Access: ', err);
+}
+
+function onMIDIMessage(message) {
+  var midiDataMessage = document.createElement('li');
+
+  data = message.data;
+  cmd = data[0] >>4;
+  channel = data[0] & 0xf;
+  type = data[0] & 0xf0; // channel agnostic message type
+  note = data[1];
+  velocity = data[2];
+
+  switch(type) {
+    case 144: // noteOn message
+      noteOn(note, velocity);
+      break;
+    case 128: // noteOff message
+      noteOff(note, velocity);
+      break;
+  }
+
+  midiDataMessage.innerHTML = data;
+  midiMessages.appendChild(midiDataMessage);
+  console.log('MIDI data ', data);
+}
+
+function getMIDIAccess() {
+  if(navigator.requestMIDIAccess) {
+    navigator.requestMIDIAccess({
+      sysex: false
+    })
+    .then(onMIDISuccess, onMIDIFailure);
+  } else {
+    return new Error('No MIDI support in browser');
+  }
+}
+
+deviceButton.addEventListener('click', function(e) {
+  e.preventDefault();
+  if(deviceButton.classList.contains('active')) {
+    console.log('MIDI Device already connected');
+    return true;
+  }
+
+  getMIDIAccess();
+}, false);
+
+selectWaveType.addEventListener('change', function(e){
+  waveType = e.target.value;
+}, false);
+
+selectDualType.addEventListener('change', function(e){
+  dualType = e.target.value;
+}, false);
+selectTripType.addEventListener('change', function(e){
+  tripType = e.target.value;
+}, false);
+selectCutoff.addEventListener('change', function(e){
+  lpFilter.cutoff = e.target.value;
+}, false);
+selectRes.addEventListener('change', function(e){
+  lpFilter.resonance = e.target.value;
+}, false);
+selectDetune.addEventListener('click', function(e) {
+  if(e.target.classList.contains('active')) {
+    detuned = false;
+    e.target.classList.remove('active');
+  } else {
+    e.target.classList.add('active');
+    detuned = true;
+  }
+  console.log('detuned', detuned);
+}, false);
+
+window.addEventListener('load', function(e) {
+  getMIDIAccess();
+}, false);
+</script>
+</body>
+</html>
